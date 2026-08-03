@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { createScraper, CompanyTypes } from 'israeli-bank-scrapers';
+import { installOneZeroTransport } from './one-zero-transport.js';
 
 
 /**
@@ -50,10 +51,15 @@ if (API_KEY.length < 24) {
 }
 
 const app = express();
+// Railway terminates TLS in front of this process. Trust its single proxy hop
+// so express-rate-limit uses the real client address without validation noise.
+app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(helmet());
 // NOTE: no `cors()` middleware on purpose — server-to-server only.
 app.use(express.json({ limit: '256kb' }));
+
+installOneZeroTransport();
 
 // Rate limit by IP: 30 requests / 5 minutes
 app.use(
