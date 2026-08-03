@@ -17,7 +17,7 @@
     "express": "^4.19.2",
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
-    "israeli-bank-scrapers": "6.8.0",
+    "israeli-bank-scrapers": "6.9.0",
     "zod": "^3.23.8",
     "puppeteer": "24.40.0"
   }
