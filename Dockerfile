@@ -10,6 +10,8 @@ WORKDIR /app
 # Keep Puppeteer's runtime lookup on the browser cache bundled in the base image.
 ENV PUPPETEER_CACHE_DIR=/home/pptruser/.cache/puppeteer
 ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV XDG_CONFIG_HOME=/tmp/.chromium
+ENV XDG_CACHE_HOME=/tmp/.chromium
 
 # Run as the non-root 'pptruser' that the base image creates
 USER root
