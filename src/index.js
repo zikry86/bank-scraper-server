@@ -234,6 +234,43 @@ function applyFibiEmbeddedLogin(scraper) {
         }
       },
       preAction: async () => loginFrame,
+      postAction: async () => {
+        const page = scraper.page;
+        if (!page) throw new Error('FIBI post-login page was not initialized');
+
+        const deadline = Date.now() + 120_000;
+        const readyUrl =
+          /fibi.*accountSummary|Resources\/PortalNG\/shell|FibiMenu\/Online/i;
+        const readySelectors = [
+          '#card-header',
+          '#account_num',
+          '#matafLogoutLink',
+          '#validationMsg',
+        ];
+
+        while (Date.now() < deadline) {
+          if (readyUrl.test(page.url())) return;
+
+          for (const selector of readySelectors) {
+            if (await page.$(selector).catch(() => null)) return;
+          }
+
+          if (loginFrame) {
+            const loginRejected = await loginFrame
+              .$eval('#mymessage', (element) => Boolean(element.textContent?.trim()))
+              .catch(() => false);
+            if (loginRejected) {
+              throw new Error(
+                'FIBI did not complete login; verify the saved credentials or bank challenge'
+              );
+            }
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+
+        throw new Error('FIBI post-login page did not become ready');
+      },
     };
   };
 }
