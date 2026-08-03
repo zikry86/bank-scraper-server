@@ -1,18 +1,22 @@
-FROM node:18-slim
+# Puppeteer base image ships a matching Chromium + fonts.
+# israeli-bank-scrapers 6.8.0 depends on puppeteer ^24.40.0, so the image tag is
+# pinned to the same Puppeteer line (24.40.0) to keep Chromium in sync.
+# That image runs Node 24.14.0, which satisfies engines.node >= 22.22.2.
+FROM ghcr.io/puppeteer/puppeteer:24.40.0
 
-RUN apt-get update && apt-get install -y \
-    chromium \
-    --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
-
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 WORKDIR /app
-COPY package.json ./
-RUN npm install --production
-COPY src ./src
 
-ENV PORT=3001
-EXPOSE 3001
+# Run as the non-root 'pptruser' that the base image creates
+USER root
+COPY package.json package-lock.json* ./
+RUN npm install --omit=dev && chown -R pptruser:pptruser /app
+USER pptruser
+
+COPY --chown=pptruser:pptruser src ./src
+
+ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
+
 CMD ["node", "src/index.js"]
