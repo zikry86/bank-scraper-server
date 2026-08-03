@@ -196,17 +196,25 @@ function applyFibiEmbeddedLogin(scraper) {
   scraper.getLoginOptions = (credentials) => {
     const original = getOriginalLoginOptions(credentials);
     let loginFrame;
+    let loginReady = false;
+
+    const possibleResults = {
+      ...original.possibleResults,
+      SUCCESS: [
+        async () => loginReady,
+        ...(original.possibleResults?.SUCCESS || []),
+      ],
+    };
 
     return {
       ...original,
       loginUrl: 'https://www.fibi.co.il/private/',
+      possibleResults,
       checkReadiness: async () => {
         const page = scraper.page;
         if (!page) throw new Error('FIBI login page was not initialized');
 
         await page.waitForSelector('.login-trigger', { visible: true });
-        // A DOM click is intentional: the site's cookie notice can overlap the
-        // trigger visually while the control itself remains enabled.
         await page.$eval('.login-trigger', (button) => button.click());
 
         const iframeElement = await page.waitForSelector('iframe#loginFrame', {
@@ -249,10 +257,19 @@ function applyFibiEmbeddedLogin(scraper) {
         ];
 
         while (Date.now() < deadline) {
-          if (readyUrl.test(page.url())) return;
+          const targets = [page, ...page.frames()];
+          for (const target of targets) {
+            if (readyUrl.test(target.url())) {
+              loginReady = true;
+              return;
+            }
 
-          for (const selector of readySelectors) {
-            if (await page.$(selector).catch(() => null)) return;
+            for (const selector of readySelectors) {
+              if (await target.$(selector).catch(() => null)) {
+                loginReady = true;
+                return;
+              }
+            }
           }
 
           if (loginFrame) {
@@ -269,7 +286,22 @@ function applyFibiEmbeddedLogin(scraper) {
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
 
-        throw new Error('FIBI post-login page did not become ready');
+        const safeLocation = (rawUrl) => {
+          try {
+            const parsedUrl = new URL(rawUrl);
+            return parsedUrl.origin === 'null'
+              ? `${parsedUrl.protocol}${parsedUrl.pathname}`
+              : `${parsedUrl.origin}${parsedUrl.pathname}`;
+          } catch {
+            return 'unknown';
+          }
+        };
+        const locations = [
+          ...new Set(page.frames().slice(0, 8).map((frame) => safeLocation(frame.url()))),
+        ];
+        throw new Error(
+          `FIBI post-login page did not become ready (locations: ${locations.join(', ')})`
+        );
       },
     };
   };
