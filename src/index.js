@@ -241,6 +241,17 @@ function applyFibiEmbeddedLogin(scraper) {
           );
         }
       },
+      submitButtonSelector: async () => {
+        if (!loginFrame) throw new Error('FIBI login frame was not available for submit');
+        await loginFrame.$eval('#continueBtn', (button) => {
+          const form = button.form;
+          if (form?.requestSubmit) {
+            form.requestSubmit(button);
+          } else {
+            button.click();
+          }
+        });
+      },
       preAction: async () => {
         // FIBI's embedded form ignores an immediate programmatic click even
         // after the submit button is visible. Preserve the upstream delay.
