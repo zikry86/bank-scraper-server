@@ -241,7 +241,12 @@ function applyFibiEmbeddedLogin(scraper) {
           );
         }
       },
-      preAction: async () => loginFrame,
+      preAction: async () => {
+        // FIBI's embedded form ignores an immediate programmatic click even
+        // after the submit button is visible. Preserve the upstream delay.
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        return loginFrame;
+      },
       postAction: async () => {
         const page = scraper.page;
         if (!page) throw new Error('FIBI post-login page was not initialized');
