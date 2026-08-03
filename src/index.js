@@ -22,7 +22,7 @@ import { createScraper, CompanyTypes } from 'israeli-bank-scrapers';
  *   leak through a stack trace or a library error message.
  */
 
-const PORT = process.env.PORT || 3000;
+// Railway's public domain for this service is pinned to port 3001. Keep a\n// dedicated override so the service is not moved when Railway injects PORT.\nconst PORT = process.env.SCRAPER_PORT || process.env.PORT || 3000;
 const API_KEY = process.env.SCRAPER_API_KEY;
 const DEFAULT_START_DAYS = Number(process.env.DEFAULT_START_DAYS || 60);
 
