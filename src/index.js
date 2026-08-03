@@ -27,6 +27,11 @@ import { createScraper, CompanyTypes } from 'israeli-bank-scrapers';
 const PORT = process.env.SCRAPER_PORT || process.env.PORT || 3000;
 const API_KEY = process.env.SCRAPER_API_KEY;
 const DEFAULT_START_DAYS = Number(process.env.DEFAULT_START_DAYS || 60);
+const CHROME_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+];
 
 if (!API_KEY) {
   console.error('FATAL: SCRAPER_API_KEY env var is required');
@@ -235,6 +240,7 @@ app.post('/otp/one-zero/start', requireApiKey, async (req, res) => {
       startDate: new Date(Date.now() - DEFAULT_START_DAYS * 24 * 60 * 60 * 1000),
       showBrowser: false,
       verbose: false,
+      args: CHROME_ARGS,
     });
 
     const result = await scraper.triggerTwoFactorAuth(parsed.data.phone_number);
@@ -324,6 +330,7 @@ app.post('/scrape', requireApiKey, async (req, res) => {
     showBrowser: false,
     verbose: false,
     timeout: 120_000,
+    args: CHROME_ARGS,
   };
 
   try {
