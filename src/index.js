@@ -152,6 +152,46 @@ function normalizeBankType(bankType) {
   return bankTypeAliases[bankType] || bankType;
 }
 
+/**
+ * FIBI no longer accepts a cold navigation to its legacy login servlet.
+ * The same servlet is still used, but only as an iframe opened from the
+ * public website, which establishes the required browser context first.
+ *
+ * Keep this adapter local to FIBI so the other Beinleumi-group scrapers retain
+ * their upstream login flows. No credentials are inspected or persisted here.
+ */
+function applyFibiEmbeddedLogin(scraper) {
+  const getOriginalLoginOptions = scraper.getLoginOptions.bind(scraper);
+
+  scraper.getLoginOptions = (credentials) => {
+    const original = getOriginalLoginOptions(credentials);
+    let loginFrame;
+
+    return {
+      ...original,
+      loginUrl: 'https://www.fibi.co.il/private/',
+      checkReadiness: async () => {
+        const page = scraper.page;
+        if (!page) throw new Error('FIBI login page was not initialized');
+
+        await page.waitForSelector('.login-trigger', { visible: true });
+        // A DOM click is intentional: the site's cookie notice can overlap the
+        // trigger visually while the control itself remains enabled.
+        await page.$eval('.login-trigger', (button) => button.click());
+
+        const iframeElement = await page.waitForSelector('iframe#loginFrame', {
+          visible: true,
+        });
+        loginFrame = await iframeElement.contentFrame();
+        if (!loginFrame) throw new Error('FIBI login frame was not available');
+
+        await loginFrame.waitForSelector('#continueBtn', { visible: true });
+      },
+      preAction: async () => loginFrame,
+    };
+  };
+}
+
 const scrapeBodySchema = z.object({
   bank_type: z.string().min(1),
   credentials: z.record(z.string()),
@@ -335,6 +375,9 @@ app.post('/scrape', requireApiKey, async (req, res) => {
 
   try {
     const scraper = createScraper(options);
+    if (bankType === CompanyTypes.beinleumi) {
+      applyFibiEmbeddedLogin(scraper);
+    }
     const result = await scraper.scrape(credParsed.data);
 
     if (!result.success) {
