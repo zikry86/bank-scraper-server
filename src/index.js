@@ -31,7 +31,14 @@ const CHROME_ARGS = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
   '--disable-dev-shm-usage',
+  '--disable-blink-features=AutomationControlled',
+  '--lang=he-IL',
+  '--window-size=1365,900',
 ];
+
+const BANK_BROWSER_USER_AGENT =
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36';
 
 if (!API_KEY) {
   console.error('FATAL: SCRAPER_API_KEY env var is required');
@@ -153,6 +160,29 @@ function normalizeBankType(bankType) {
 }
 
 /**
+ * Give cloud-hosted Chromium the same basic browser profile as a normal
+ * Hebrew desktop session. This reduces false automation blocks without
+ * bypassing authentication, CAPTCHAs or two-factor challenges.
+ */
+async function prepareBankPage(page) {
+  await page.setUserAgent(BANK_BROWSER_USER_AGENT);
+  await page.setViewport({ width: 1365, height: 900, deviceScaleFactor: 1 });
+  await page.setExtraHTTPHeaders({
+    'accept-language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7',
+  });
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, 'webdriver', {
+      configurable: true,
+      get: () => undefined,
+    });
+    Object.defineProperty(navigator, 'languages', {
+      configurable: true,
+      get: () => ['he-IL', 'he', 'en-US', 'en'],
+    });
+  });
+}
+
+/**
  * FIBI no longer accepts a cold navigation to its legacy login servlet.
  * The same servlet is still used, but only as an iframe opened from the
  * public website, which establishes the required browser context first.
@@ -185,7 +215,23 @@ function applyFibiEmbeddedLogin(scraper) {
         loginFrame = await iframeElement.contentFrame();
         if (!loginFrame) throw new Error('FIBI login frame was not available');
 
-        await loginFrame.waitForSelector('#continueBtn', { visible: true });
+        try {
+          await loginFrame.waitForSelector('#continueBtn', { visible: true });
+        } catch {
+          const rawUrl = loginFrame.url();
+          let safePath = 'unknown';
+          try {
+            const parsedUrl = new URL(rawUrl);
+            safePath = `${parsedUrl.origin}${parsedUrl.pathname}`;
+          } catch {
+            // Keep the diagnostic value generic if the frame URL is malformed.
+          }
+          const rawTitle = await loginFrame.title().catch(() => '');
+          const safeTitle = rawTitle.replace(/[\\r\\n\\t]/g, ' ').slice(0, 80) || 'unknown';
+          throw new Error(
+            `FIBI login form unavailable (title: ${safeTitle}, page: ${safePath})`
+          );
+        }
       },
       preAction: async () => loginFrame,
     };
@@ -371,6 +417,7 @@ app.post('/scrape', requireApiKey, async (req, res) => {
     verbose: false,
     timeout: 120_000,
     args: CHROME_ARGS,
+    preparePage: prepareBankPage,
   };
 
   try {
