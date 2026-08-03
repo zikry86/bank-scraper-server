@@ -16,7 +16,7 @@ USER pptruser
 COPY --chown=pptruser:pptruser src ./src
 
 ENV NODE_ENV=production
-ENV PORT=3000
-EXPOSE 3000
+ENV SCRAPER_PORT=3001
+EXPOSE 3001
 
 CMD ["node", "src/index.js"]
