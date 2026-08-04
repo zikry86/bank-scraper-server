@@ -208,7 +208,19 @@ function applyFibiEmbeddedLogin(scraper) {
     while (Date.now() < deadline) {
       const pages = await scraper.page?.browser().pages().catch(() => []);
       for (const openPage of pages || []) {
-        for (const target of [openPage, ...openPage.frames()]) {
+        const frames = openPage.frames();
+        const namedTransactionFrames = frames.filter(
+          (frame) => frame.name() === 'iframe-old-pages'
+        );
+        // The outer Angular shell can expose similarly named elements while
+        // the legacy transaction iframe is still empty. The upstream scraper
+        // always prefers iframe-old-pages, so validate that same target first.
+        const targets =
+          namedTransactionFrames.length > 0
+            ? namedTransactionFrames
+            : [openPage, ...frames];
+
+        for (const target of targets) {
           const isTransactionsFrame =
             target !== openPage && target.name() === 'iframe-old-pages';
           const isTransactionsDocument =
@@ -221,7 +233,7 @@ function applyFibiEmbeddedLogin(scraper) {
             // FIBI replaces this frame during portal startup. Require the same
             // target to remain usable briefly so the upstream extractor does
             // not receive a stale frame immediately after this check.
-            await new Promise((resolve) => setTimeout(resolve, 750));
+            await new Promise((resolve) => setTimeout(resolve, 3_000));
             const isStable = Boolean(
               await target.$('.main_balance').catch(() => null)
             );
