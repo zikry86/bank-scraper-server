@@ -223,10 +223,57 @@ function applyFibiEmbeddedLogin(scraper) {
         throw error;
       }
 
-      await scraper.page
-        ?.waitForNetworkIdle({ idleTime: 500, timeout: 10_000 })
-        .catch(() => undefined);
-      return undefined;
+      const transactionSelectors = [
+        '.main_balance',
+        '#account_num_select',
+        '#dataTable077',
+        '#dataTable023',
+        'div.fibi_account',
+      ];
+      const deadline = Date.now() + 30_000;
+
+      while (Date.now() < deadline) {
+        const pages = await scraper.page?.browser().pages().catch(() => []);
+        for (const openPage of pages || []) {
+          for (const target of [openPage, ...openPage.frames()]) {
+            const isTransactionsFrame =
+              target !== openPage && target.name() === 'iframe-old-pages';
+            let hasTransactionContent = false;
+
+            for (const selector of transactionSelectors) {
+              if (await target.$(selector).catch(() => null)) {
+                hasTransactionContent = true;
+                break;
+              }
+            }
+
+            if (isTransactionsFrame || hasTransactionContent) {
+              scraper.page = openPage;
+              return undefined;
+            }
+          }
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+
+      const pages = await scraper.page?.browser().pages().catch(() => []);
+      const safeLocations = (pages || [])
+        .flatMap((openPage) => [openPage, ...openPage.frames()])
+        .slice(0, 8)
+        .map((target) => {
+          try {
+            const parsed = new URL(target.url());
+            return `${parsed.origin}${parsed.pathname}`;
+          } catch {
+            return 'unknown';
+          }
+        });
+      throw new Error(
+        `FIBI transaction view did not become ready (locations: ${[
+          ...new Set(safeLocations),
+        ].join(', ')})`
+      );
     }
   };
 
