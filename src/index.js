@@ -204,6 +204,20 @@ function applyFibiEmbeddedLogin(scraper) {
 
   const waitForTransactionView = async () => {
     const deadline = Date.now() + 30_000;
+    const hasVisibleBalance = async (target) =>
+      target
+        .$eval('.main_balance', (element) => {
+          const style = window.getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return (
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            Number(style.opacity || '1') > 0 &&
+            rect.width > 0 &&
+            rect.height > 0
+          );
+        })
+        .catch(() => false);
 
     while (Date.now() < deadline) {
       const pages = await scraper.page?.browser().pages().catch(() => []);
@@ -225,18 +239,14 @@ function applyFibiEmbeddedLogin(scraper) {
             target !== openPage && target.name() === 'iframe-old-pages';
           const isTransactionsDocument =
             /OnBalanceTrans|PrivateAccountFlow/i.test(target.url());
-          const hasBalance = Boolean(
-            await target.$('.main_balance').catch(() => null)
-          );
+          const hasBalance = await hasVisibleBalance(target);
 
           if (hasBalance && (isTransactionsFrame || isTransactionsDocument)) {
             // FIBI replaces this frame during portal startup. Require the same
             // target to remain usable briefly so the upstream extractor does
             // not receive a stale frame immediately after this check.
             await new Promise((resolve) => setTimeout(resolve, 3_000));
-            const isStable = Boolean(
-              await target.$('.main_balance').catch(() => null)
-            );
+            const isStable = await hasVisibleBalance(target);
             if (!isStable) continue;
 
             if (target !== openPage) {
