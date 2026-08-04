@@ -249,7 +249,11 @@ function applyFibiEmbeddedLogin(scraper) {
       },
       submitButtonSelector: async () => {
         if (!loginFrame) throw new Error('FIBI login frame was not available for submit');
-        await loginFrame.$eval('#continueBtn', (button) => button.click());
+        // The current control is an <input type="button"> whose login handler
+        // expects a real browser mouse event. Calling element.click() inside the
+        // page creates a synthetic event and leaves the iframe on the login
+        // servlet. Puppeteer's Frame.click sends the trusted mouse sequence.
+        await loginFrame.click('#continueBtn');
       },
       preAction: async () => {
         // FIBI's embedded form ignores an immediate programmatic click even
@@ -271,18 +275,31 @@ function applyFibiEmbeddedLogin(scraper) {
           '#validationMsg',
         ];
 
-        while (Date.now() < deadline) {
-          const targets = [page, ...page.frames()];
-          for (const target of targets) {
-            if (readyUrl.test(target.url())) {
-              loginReady = true;
-              return;
-            }
+        const getOpenPages = async () => {
+          const pages = await page.browser().pages().catch(() => []);
+          return pages.length > 0 ? pages : [page];
+        };
 
-            for (const selector of readySelectors) {
-              if (await target.$(selector).catch(() => null)) {
+        while (Date.now() < deadline) {
+          const openPages = await getOpenPages();
+          for (const openPage of openPages) {
+            const targets = [openPage, ...openPage.frames()];
+            for (const target of targets) {
+              if (readyUrl.test(target.url())) {
+                // FIBI may open the authenticated portal in a new tab. Keep
+                // that page as the scraper's active page so fetchData() uses
+                // the authenticated browser context and the correct tab.
+                scraper.page = openPage;
                 loginReady = true;
                 return;
+              }
+
+              for (const selector of readySelectors) {
+                if (await target.$(selector).catch(() => null)) {
+                  scraper.page = openPage;
+                  loginReady = true;
+                  return;
+                }
               }
             }
           }
@@ -311,8 +328,14 @@ function applyFibiEmbeddedLogin(scraper) {
             return 'unknown';
           }
         };
+        const openPages = await getOpenPages();
         const locations = [
-          ...new Set(page.frames().slice(0, 8).map((frame) => safeLocation(frame.url()))),
+          ...new Set(
+            openPages
+              .flatMap((openPage) => [openPage, ...openPage.frames()])
+              .slice(0, 12)
+              .map((target) => safeLocation(target.url()))
+          ),
         ];
         throw new Error(
           `FIBI post-login page did not become ready (locations: ${locations.join(', ')})`
