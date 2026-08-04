@@ -210,11 +210,16 @@ function applyFibiEmbeddedLogin(scraper) {
           url
         );
 
-      // The authenticated FIBI portal takes over this route client-side and
-      // aborts Puppeteer's document request even though the transaction view
-      // continues loading. Treat only that known post-login abort as a valid
-      // handoff; all other navigation failures must still surface.
-      if (!isTransactionsRoute || !message.includes('net::ERR_ABORTED')) {
+      const isPortalHandoff =
+        message.includes('net::ERR_ABORTED') ||
+        message.includes('Navigating frame was detached');
+
+      // The authenticated FIBI portal takes over this route client-side. It
+      // either aborts Puppeteer's document request or replaces the navigating
+      // frame while the transaction view continues loading. Treat only those
+      // known post-login outcomes as a valid handoff; every other navigation
+      // failure must still surface.
+      if (!isTransactionsRoute || !isPortalHandoff) {
         throw error;
       }
 
