@@ -198,6 +198,32 @@ async function prepareBankPage(page) {
  */
 function applyFibiEmbeddedLogin(scraper) {
   const getOriginalLoginOptions = scraper.getLoginOptions.bind(scraper);
+  const originalNavigateTo = scraper.navigateTo.bind(scraper);
+
+  scraper.navigateTo = async (url, ...args) => {
+    try {
+      return await originalNavigateTo(url, ...args);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      const isTransactionsRoute =
+        /FibiMenu\/Online\/OnAccountMngment\/OnBalanceTrans\/PrivateAccountFlow/i.test(
+          url
+        );
+
+      // The authenticated FIBI portal takes over this route client-side and
+      // aborts Puppeteer's document request even though the transaction view
+      // continues loading. Treat only that known post-login abort as a valid
+      // handoff; all other navigation failures must still surface.
+      if (!isTransactionsRoute || !message.includes('net::ERR_ABORTED')) {
+        throw error;
+      }
+
+      await scraper.page
+        ?.waitForNetworkIdle({ idleTime: 500, timeout: 10_000 })
+        .catch(() => undefined);
+      return undefined;
+    }
+  };
 
   scraper.getLoginOptions = (credentials) => {
     const original = getOriginalLoginOptions(credentials);
