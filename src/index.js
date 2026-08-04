@@ -289,8 +289,52 @@ function applyFibiEmbeddedLogin(scraper) {
     );
   };
 
+  const openTransactionsFromPortalMenu = async () => {
+    const deadline = Date.now() + 15_000;
+    const clickableSelector =
+      'a, button, [role="button"], [routerlink], [tabindex]';
+
+    while (Date.now() < deadline) {
+      const pages = await scraper.page?.browser().pages().catch(() => []);
+      for (const openPage of pages || []) {
+        for (const target of [openPage, ...openPage.frames()]) {
+          const candidates = await target.$$(clickableSelector).catch(() => []);
+          for (const candidate of candidates) {
+            const isTransactionsMenu = await candidate
+              .evaluate((element) => {
+                const normalized = (value) =>
+                  (value || '').replace(/\s+/g, ' ').trim();
+                const labels = [
+                  element.textContent,
+                  element.getAttribute('aria-label'),
+                  element.getAttribute('title'),
+                ].map(normalized);
+                return labels.some((label) => label.includes('תנועות בחשבון'));
+              })
+              .catch(() => false);
+
+            if (!isTransactionsMenu) continue;
+
+            await candidate.click();
+            scraper.page = openPage;
+            return true;
+          }
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+
+    return false;
+  };
+
   scraper.navigateTo = async (url, ...args) => {
     const isTransactionsRoute = transactionsRoute.test(url);
+
+    if (isTransactionsRoute && (await openTransactionsFromPortalMenu())) {
+      await waitForTransactionView();
+      return undefined;
+    }
 
     try {
       const result = await originalNavigateTo(url, ...args);
