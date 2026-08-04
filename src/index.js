@@ -201,6 +201,49 @@ function applyFibiEmbeddedLogin(scraper) {
   const originalNavigateTo = scraper.navigateTo.bind(scraper);
   const transactionsRoute =
     /FibiMenu\/Online\/OnAccountMngment\/OnBalanceTrans\/PrivateAccountFlow/i;
+  const balanceFallbackTargets = new WeakSet();
+
+  const allowMissingBalance = (target) => {
+    if (balanceFallbackTargets.has(target)) return;
+    balanceFallbackTargets.add(target);
+
+    const waitForSelector = target.waitForSelector.bind(target);
+    target.waitForSelector = async (selector, options) => {
+      try {
+        return await waitForSelector(selector, options);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (
+          selector !== '.main_balance' ||
+          !message.includes('Waiting for selector')
+        ) {
+          throw error;
+        }
+
+        // Some inactive/additional FIBI accounts have transactions but no
+        // balance element (upstream issue #892). Let extraction continue with
+        // a NaN balance, which serializes as null, instead of inventing zero or
+        // dropping all transactions for the connection.
+        await target.evaluate(() => {
+          let balance = document.querySelector('.main_balance');
+          if (!balance) {
+            balance = document.createElement('span');
+            balance.className = 'main_balance';
+            document.body.appendChild(balance);
+          }
+          balance.textContent = '—';
+          balance.setAttribute('data-heebo-missing-balance', 'true');
+          balance.setAttribute(
+            'style',
+            'display:block!important;visibility:visible!important;opacity:1!important;' +
+              'position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;'
+          );
+        });
+
+        return waitForSelector(selector, { ...options, timeout: 1_000 });
+      }
+    };
+  };
 
   const waitForTransactionView = async () => {
     const deadline = Date.now() + 30_000;
@@ -249,6 +292,7 @@ function applyFibiEmbeddedLogin(scraper) {
             const isStable = await hasVisibleBalance(target);
             if (!isStable) continue;
 
+            allowMissingBalance(target);
             if (target !== openPage) {
               // Multiple portal frames can temporarily share the same name.
               // The upstream library selects the first iframe-old-pages, so
@@ -256,6 +300,11 @@ function applyFibiEmbeddedLogin(scraper) {
               const getOriginalFrames = openPage.frames.bind(openPage);
               openPage.frames = () => {
                 const currentFrames = getOriginalFrames();
+                for (const frame of currentFrames) {
+                  if (frame.name() === 'iframe-old-pages') {
+                    allowMissingBalance(frame);
+                  }
+                }
                 if (!currentFrames.includes(target)) return currentFrames;
                 return [target, ...currentFrames.filter((frame) => frame !== target)];
               };
