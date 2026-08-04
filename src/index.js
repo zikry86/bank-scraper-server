@@ -246,6 +246,25 @@ function applyFibiEmbeddedLogin(scraper) {
             `FIBI login form unavailable (title: ${safeTitle}, page: ${safePath})`
           );
         }
+
+        try {
+          // FIBI renders the form before its Transmit Security SDK finishes
+          // initializing. The SDK attaches the actual login handler only after
+          // initialize() resolves, so clicking the already-visible button too
+          // early is silently ignored. Wait for that handler, not just the DOM.
+          await loginFrame.waitForFunction(
+            () => {
+              const button = document.getElementById('continueBtn');
+              const jquery = window.jQuery;
+              if (!button || typeof jquery?._data !== 'function') return false;
+              const events = jquery._data(button, 'events');
+              return Boolean(events?.click?.length);
+            },
+            { timeout: 60_000 }
+          );
+        } catch {
+          throw new Error('FIBI login security controls did not finish initializing');
+        }
       },
       submitButtonSelector: async () => {
         if (!loginFrame) throw new Error('FIBI login frame was not available for submit');
