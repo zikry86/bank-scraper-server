@@ -199,17 +199,72 @@ async function prepareBankPage(page) {
 function applyFibiEmbeddedLogin(scraper) {
   const getOriginalLoginOptions = scraper.getLoginOptions.bind(scraper);
   const originalNavigateTo = scraper.navigateTo.bind(scraper);
+  const transactionsRoute =
+    /FibiMenu\/Online\/OnAccountMngment\/OnBalanceTrans\/PrivateAccountFlow/i;
+
+  const waitForTransactionView = async () => {
+    const transactionSelectors = [
+      '.main_balance',
+      '#account_num_select',
+      '#dataTable077',
+      '#dataTable023',
+      'div.fibi_account',
+    ];
+    const deadline = Date.now() + 30_000;
+
+    while (Date.now() < deadline) {
+      const pages = await scraper.page?.browser().pages().catch(() => []);
+      for (const openPage of pages || []) {
+        for (const target of [openPage, ...openPage.frames()]) {
+          const isTransactionsFrame =
+            target !== openPage && target.name() === 'iframe-old-pages';
+          let hasTransactionContent = false;
+
+          for (const selector of transactionSelectors) {
+            if (await target.$(selector).catch(() => null)) {
+              hasTransactionContent = true;
+              break;
+            }
+          }
+
+          if (isTransactionsFrame || hasTransactionContent) {
+            scraper.page = openPage;
+            return;
+          }
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+
+    const pages = await scraper.page?.browser().pages().catch(() => []);
+    const safeLocations = (pages || [])
+      .flatMap((openPage) => [openPage, ...openPage.frames()])
+      .slice(0, 8)
+      .map((target) => {
+        try {
+          const parsed = new URL(target.url());
+          return `${parsed.origin}${parsed.pathname}`;
+        } catch {
+          return 'unknown';
+        }
+      });
+    throw new Error(
+      `FIBI transaction view did not become ready (locations: ${[
+        ...new Set(safeLocations),
+      ].join(', ')})`
+    );
+  };
 
   scraper.navigateTo = async (url, ...args) => {
+    const isTransactionsRoute = transactionsRoute.test(url);
+
     try {
-      return await originalNavigateTo(url, ...args);
+      const result = await originalNavigateTo(url, ...args);
+      if (isTransactionsRoute) await waitForTransactionView();
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
-      const isTransactionsRoute =
-        /FibiMenu\/Online\/OnAccountMngment\/OnBalanceTrans\/PrivateAccountFlow/i.test(
-          url
-        );
-
       const isPortalHandoff =
         message.includes('net::ERR_ABORTED') ||
         message.includes('Navigating frame was detached');
@@ -223,57 +278,8 @@ function applyFibiEmbeddedLogin(scraper) {
         throw error;
       }
 
-      const transactionSelectors = [
-        '.main_balance',
-        '#account_num_select',
-        '#dataTable077',
-        '#dataTable023',
-        'div.fibi_account',
-      ];
-      const deadline = Date.now() + 30_000;
-
-      while (Date.now() < deadline) {
-        const pages = await scraper.page?.browser().pages().catch(() => []);
-        for (const openPage of pages || []) {
-          for (const target of [openPage, ...openPage.frames()]) {
-            const isTransactionsFrame =
-              target !== openPage && target.name() === 'iframe-old-pages';
-            let hasTransactionContent = false;
-
-            for (const selector of transactionSelectors) {
-              if (await target.$(selector).catch(() => null)) {
-                hasTransactionContent = true;
-                break;
-              }
-            }
-
-            if (isTransactionsFrame || hasTransactionContent) {
-              scraper.page = openPage;
-              return undefined;
-            }
-          }
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-
-      const pages = await scraper.page?.browser().pages().catch(() => []);
-      const safeLocations = (pages || [])
-        .flatMap((openPage) => [openPage, ...openPage.frames()])
-        .slice(0, 8)
-        .map((target) => {
-          try {
-            const parsed = new URL(target.url());
-            return `${parsed.origin}${parsed.pathname}`;
-          } catch {
-            return 'unknown';
-          }
-        });
-      throw new Error(
-        `FIBI transaction view did not become ready (locations: ${[
-          ...new Set(safeLocations),
-        ].join(', ')})`
-      );
+      await waitForTransactionView();
+      return undefined;
     }
   };
 
