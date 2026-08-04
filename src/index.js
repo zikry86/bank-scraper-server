@@ -239,6 +239,18 @@ function applyFibiEmbeddedLogin(scraper) {
             );
             if (!isStable) continue;
 
+            if (target !== openPage) {
+              // Multiple portal frames can temporarily share the same name.
+              // The upstream library selects the first iframe-old-pages, so
+              // put the frame we just verified first while it remains attached.
+              const getOriginalFrames = openPage.frames.bind(openPage);
+              openPage.frames = () => {
+                const currentFrames = getOriginalFrames();
+                if (!currentFrames.includes(target)) return currentFrames;
+                return [target, ...currentFrames.filter((frame) => frame !== target)];
+              };
+            }
+
             scraper.page = openPage;
             return;
           }
